@@ -503,29 +503,98 @@ class CopyMarkPlugin extends Plugin {
     } catch (e) { return false; }
   }
 
+  elOf(n) {
+    if (!n) return null;
+    return n.nodeType === 1 ? n : n.parentElement;
+  }
+
+  // 行内代码是原子 token：选区只压到一半就把整段包进来，绝不切开
+  // 返回 false 表示选区无效（调整后为空）
+  snapCode(range) {
+    const startEl = this.elOf(range.startContainer);
+    const endEl = this.elOf(range.endContainer);
+    const blockOf = (el) => (el && el.closest && el.closest("[data-node-id]")) || null;
+    const b1 = blockOf(startEl), b2 = blockOf(endEl);
+
+    // 只扫选区涉及的块；跨块时逐块处理，避免全文档遍历
+    let codes = [];
+    if (b1 && b1 === b2) {
+      codes = Array.from(b1.querySelectorAll('span[data-type="code"]'))
+        .filter((sp) => range.intersectsNode(sp));
+    } else {
+      const host = (startEl && startEl.closest && startEl.closest(".protyle-wysiwyg")) || null;
+      if (!host) return true;
+      codes = Array.from(host.querySelectorAll('span[data-type="code"]'))
+        .filter((sp) => {
+          const b = blockOf(sp);
+          if (!b) return false;
+          const inSel = (b === b1 || b === b2);
+          return inSel && range.intersectsNode(sp);
+        });
+    }
+    if (!codes.length) return true;
+
+    const startIn = codes.find((sp) => sp.contains(startEl));
+    const endIn = codes.find((sp) => sp.contains(endEl));
+    try {
+      if (startIn) range.setStartBefore(startIn);
+      if (endIn) range.setEndAfter(endIn);
+    } catch (e) { return false; }
+    return !range.collapsed;
+  }
+
+  stamp(node, clickMode) {
+    node.style.setProperty("--sycopy", "1");
+    node.style.setProperty("--sycopy-mode", clickMode ? "click" : "button");
+    if (clickMode) { node.style.cursor = "pointer"; }
+    else { node.style.removeProperty("cursor"); }
+  }
+
   applyMark(clickMode) {
     if (!this.restoreRange()) return;
-    const text = this.savedRange.toString();
-    if (!text) return;
+    const range = this.savedRange;
+    if (!range.toString()) return;
+    if (!this.snapCode(range)) return;
 
-    const span = document.createElement("span");
-    span.setAttribute("data-type", "text");
-    span.style.setProperty("--sycopy", "1");
-    span.style.setProperty("--sycopy-mode", clickMode ? "click" : "button");
-    if (clickMode) span.style.cursor = "pointer";
-    span.textContent = text;
-
-    this.savedRange.deleteContents();
-    this.savedRange.insertNode(span);
-
-    const after = document.createRange();
-    after.setStartAfter(span);
-    after.collapse(true);
     const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(after);
+    const collapseAfter = (node) => {
+      const after = document.createRange();
+      after.setStartAfter(node);
+      after.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(after);
+    };
 
-    this.notifySave(span);
+    // 先抽出片段，再逐个节点打标记
+    const frag = range.extractContents();
+
+    // 格式节点（行内代码/加粗/斜体/链接/高亮…）必须自己带样式：
+    // 包在它外面会被 Lute 拍平成纯文本，包在它里面会被整个丢弃
+    frag.querySelectorAll("span[data-type]").forEach((sp) => this.stamp(sp, clickMode));
+
+    // 剩下的裸文本，各包一层 text span
+    const walker = document.createTreeWalker(frag, NodeFilter.SHOW_TEXT);
+    const texts = [];
+    while (walker.nextNode()) texts.push(walker.currentNode);
+    texts.forEach((n) => {
+      if (!n.nodeValue) return;
+      const p = n.parentElement;
+      if (p && p.closest("span[data-type]")) return;   // 已在格式节点里，上面打过了
+      const span = document.createElement("span");
+      span.setAttribute("data-type", "text");
+      this.stamp(span, clickMode);
+      span.textContent = n.nodeValue;
+      n.parentNode.insertBefore(span, n);
+      n.parentNode.removeChild(n);
+    });
+
+    const last = frag.lastChild;
+    range.insertNode(frag);
+    if (last) collapseAfter(last);
+
+    const tail = last || (range.startContainer.nodeType === 1
+      ? range.startContainer : range.startContainer.parentElement);
+    this.notifySave(tail);
   }
 
   // 每个标记自己记着模式，互不影响
