@@ -1,0 +1,34 @@
+{
+  "name": "siyuan-copy-mark",
+  "author": "langdon",
+  "url": "https://github.com/unmime/siyuan-copy-mark",
+  "version": "1.0.0",
+  "minAppVersion": "3.0.0",
+  "backends": [
+    "all"
+  ],
+  "frontends": [
+    "desktop",
+    "desktop-window",
+    "browser-desktop",
+    "mobile"
+  ],
+  "displayName": {
+    "default": "一键复制",
+    "en_US": "One-Click Copy"
+  },
+  "description": {
+    "default": "给任意文字加复制按钮：点一下直接复制，或者悬停出按钮。",
+    "en_US": "Put a copy button on any text: click to copy, or hover to reveal the button."
+  },
+  "readme": {
+    "default": "README.md"
+  },
+  "keywords": [
+    "复制",
+    "copy",
+    "clipboard",
+    "一键复制"
+  ],
+  "disabledInPublish": true
+}
