@@ -18,7 +18,7 @@ const HOVER_GRACE_MS = 400;
 class CopyMarkPlugin extends Plugin {
   async onload() {
     this.conf = Object.assign({ copyIcon: "", okIcon: "", persistent: false,
-      enableClick: true, enableButton: true }, (await this.loadData("conf")) || {});
+      enableClick: true, enableButton: true, inlineCodeCopy: false }, (await this.loadData("conf")) || {});
 
     // 解析自定义图标（emoji 原样用，Iconify 名称走 API 转 SVG）
     this.copyHTML = await this.resolveIcon(this.conf.copyIcon, COPY_GLYPH);
@@ -43,6 +43,7 @@ class CopyMarkPlugin extends Plugin {
       }
     }, 3000);
     try { this.buildSetting(); } catch (e) { console.error("[copy-mark] setting:", e); }
+    try { this.applyCodeCursor(); } catch (e) { console.error("[copy-mark] codeCursor:", e); }
   }
 
   onunload() {
@@ -53,6 +54,9 @@ class CopyMarkPlugin extends Plugin {
     if (this.layer && this.layer.parentNode) this.layer.parentNode.removeChild(this.layer);
     this.layer = null;
     this.btn = null;
+
+    const cur = document.getElementById("cm-code-cursor");
+    if (cur && cur.parentNode) cur.parentNode.removeChild(cur);
   }
 
   /* ---------------- 设置 ---------------- */
@@ -168,6 +172,17 @@ class CopyMarkPlugin extends Plugin {
       this.syncInlineButtons();
     });
 
+    // 行内代码点击复制：默认关闭，不标记也能用
+    const iSwitch = document.createElement("input");
+    iSwitch.type = "checkbox";
+    iSwitch.className = "b3-switch";
+    iSwitch.checked = this.conf.inlineCodeCopy === true;
+    iSwitch.addEventListener("change", () => {
+      this.conf.inlineCodeCopy = iSwitch.checked;
+      this.saveData("conf", this.conf).catch(() => {});
+      this.applyCodeCursor();
+    });
+
     // 确认只兜底图标，绝不覆盖两个开关
     this.setting = new Setting({
       confirmCallback: () => { saveIcons(); },
@@ -195,6 +210,11 @@ class CopyMarkPlugin extends Plugin {
       title: "仅悬停显示复制按钮",
       description: "对应右键菜单里的同名选项，关闭后该方式不可用。",
       createActionElement: () => bSwitch,
+    });
+    this.setting.addItem({
+      title: "行内代码点击复制",
+      description: "开启后，点一下行内代码就直接复制（无需先标记）。按住 Ctrl / Cmd 再点可正常编辑。",
+      createActionElement: () => iSwitch,
     });
 
     const resetBtn = document.createElement("button");
@@ -395,6 +415,68 @@ class CopyMarkPlugin extends Plugin {
     return t.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, "");
   }
 
+  /* ---------------- 行内代码点击复制 ---------------- */
+
+  // 命中行内代码则返回该元素，否则 null
+  inlineCodeOf(t) {
+    if (!t || !t.closest) return null;
+    // 必须用 ~= 而不是 =：思源会把加粗的行内代码渲染成 data-type="strong code"，
+    // 精确匹配只能命中单纯的行内代码，会漏掉加粗/斜体等叠加样式的情况
+    let code = t.closest('span[data-type~="code"], span[data-type~="inline-code"]');
+    if (!code) {
+      // 兜底：某些主题或渲染路径下可能是裸 <code>
+      const c = t.closest("code");
+      if (c && !c.classList.contains("hljs")) code = c;
+    }
+    if (!code) return null;
+    if (!code.closest(".protyle-wysiwyg")) return null;
+    // 代码块自带复制按钮，那里的点击要继续能编辑
+    if (code.closest('[data-type="NodeCodeBlock"]')) return null;
+    if (!this.cleanText(code.textContent || "").trim()) return null;
+    return code;
+  }
+
+  // 必须在 mousedown 阶段拦：click 时光标已经进了行内代码，拦不住编辑态
+  onMouseDown(e) {
+    if (e.button !== 0) return;
+    if (this.conf.inlineCodeCopy !== true) return;
+    // 修饰键放行，保留正常进入编辑的能力
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+
+    const code = this.inlineCodeOf(e.target);
+    if (!code) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const text = this.cleanText(code.textContent || "");
+    if (!text) return;
+
+    this._codeCopiedAt = Date.now();
+    const r = code.getBoundingClientRect();
+    let fx = r.right + 18;
+    if (fx + 12 > window.innerWidth) fx = Math.max(14, r.left - 18);
+    const fy = r.top + r.height / 2;
+    this.copyText(text, fx, fy, false);
+  }
+
+  // 开启时把行内代码的指针改成小手，提示可点
+  applyCodeCursor() {
+    const ID = "cm-code-cursor";
+    const on = this.conf.inlineCodeCopy === true;
+    let el = document.getElementById(ID);
+    if (on) {
+      if (!el) {
+        el = document.createElement("style");
+        el.id = ID;
+        el.textContent = '.protyle-wysiwyg span[data-type~="code"]{cursor:pointer;}';
+        document.head.appendChild(el);
+      }
+    } else if (el && el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
+  }
+
   fallbackCopy(text) {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -519,12 +601,12 @@ class CopyMarkPlugin extends Plugin {
     // 只扫选区涉及的块；跨块时逐块处理，避免全文档遍历
     let codes = [];
     if (b1 && b1 === b2) {
-      codes = Array.from(b1.querySelectorAll('span[data-type="code"]'))
+      codes = Array.from(b1.querySelectorAll('span[data-type~="code"]'))
         .filter((sp) => range.intersectsNode(sp));
     } else {
       const host = (startEl && startEl.closest && startEl.closest(".protyle-wysiwyg")) || null;
       if (!host) return true;
-      codes = Array.from(host.querySelectorAll('span[data-type="code"]'))
+      codes = Array.from(host.querySelectorAll('span[data-type~="code"]'))
         .filter((sp) => {
           const b = blockOf(sp);
           if (!b) return false;
@@ -703,6 +785,26 @@ class CopyMarkPlugin extends Plugin {
     if (!t || !t.closest) return;
     if (this.btn && this.btn.contains(t)) return;
 
+    // 行内代码：mousedown 已处理过就不再重复；若被别的监听抢先没处理到，这里兜底复制
+    const inlineCode = this.inlineCodeOf(t);
+    if (inlineCode) {
+      if (this.conf.inlineCodeCopy === true) {
+        const justDone = this._codeCopiedAt && (Date.now() - this._codeCopiedAt < 800);
+        if (!justDone && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+          const text = this.cleanText(inlineCode.textContent || "");
+          if (text) {
+            e.preventDefault();
+            e.stopPropagation();
+            const r = inlineCode.getBoundingClientRect();
+            let fx = r.right + 18;
+            if (fx + 12 > window.innerWidth) fx = Math.max(14, r.left - 18);
+            this.copyText(text, fx, r.top + r.height / 2, false);
+          }
+        }
+      }
+      return;
+    }
+
     const span = t.closest(MARK_SEL);
     if (!span) return;
 
@@ -770,12 +872,15 @@ class CopyMarkPlugin extends Plugin {
   bindEvents() {
     this._onMouseOver = (e) => this.onMouseOver(e);
     this._onClick = (e) => this.onClick(e);
+    this._onMouseDown = (e) => this.onMouseDown(e);
     this._onCtx = (e) => this.onContextMenu(e);
     this._onSel = () => this.onSelectionChange();
     this._onScroll = () => { this.schedulePlace(); this.syncInlineButtons(); };
     this._onResize = () => { this.schedulePlace(); this.syncInlineButtons(); };
 
     document.addEventListener("mouseover", this._onMouseOver, true);
+    // 挂 window 而不是 document：capture 阶段比 document 更早，避免被思源自己的监听抢先
+    window.addEventListener("mousedown", this._onMouseDown, true);
     document.addEventListener("click", this._onClick, true);
     document.addEventListener("contextmenu", this._onCtx, true);
     document.addEventListener("selectionchange", this._onSel);
@@ -785,6 +890,7 @@ class CopyMarkPlugin extends Plugin {
 
   unbindEvents() {
     document.removeEventListener("mouseover", this._onMouseOver, true);
+    window.removeEventListener("mousedown", this._onMouseDown, true);
     document.removeEventListener("click", this._onClick, true);
     document.removeEventListener("contextmenu", this._onCtx, true);
     document.removeEventListener("selectionchange", this._onSel);

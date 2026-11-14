@@ -2,7 +2,7 @@
   "name": "siyuan-copy-mark",
   "author": "unmime",
   "url": "https://github.com/unmime/siyuan-copy-mark",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "3.0.0",
   "backends": [
     "all"
@@ -18,8 +18,8 @@
     "en_US": "One-Click Copy"
   },
   "description": {
-    "default": "给任意文字加复制按钮：点一下直接复制，或者悬停出按钮。",
-    "en_US": "Put a copy button on any text: click to copy, or hover to reveal the button."
+    "default": "给任意文字加复制按钮：点一下直接复制，或者悬停出按钮。行内代码也可开启点击即复制。",
+    "en_US": "Put a copy button on any text: click to copy, or hover to reveal it. Inline code can also copy on click."
   },
   "readme": {
     "default": "README.md"
