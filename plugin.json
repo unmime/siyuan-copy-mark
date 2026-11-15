@@ -2,7 +2,7 @@
   "name": "siyuan-copy-mark",
   "author": "unmime",
   "url": "https://github.com/unmime/siyuan-copy-mark",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "minAppVersion": "3.0.0",
   "backends": [
     "all"
@@ -13,6 +13,7 @@
     "browser-desktop",
     "mobile"
   ],
+  "disabledInPublish": true,
   "displayName": {
     "default": "一键复制",
     "en_US": "One-Click Copy"
@@ -24,11 +25,12 @@
   "readme": {
     "default": "README.md"
   },
+  "icon": "icon.png",
+  "preview": "preview.png",
   "keywords": [
     "复制",
     "copy",
     "clipboard",
     "一键复制"
-  ],
-  "disabledInPublish": true
+  ]
 }
