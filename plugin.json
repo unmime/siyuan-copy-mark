@@ -2,7 +2,7 @@
   "name": "siyuan-copy-mark",
   "author": "unmime",
   "url": "https://github.com/unmime/siyuan-copy-mark",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "minAppVersion": "3.0.0",
   "backends": [
     "all"
